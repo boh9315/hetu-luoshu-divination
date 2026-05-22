@@ -559,12 +559,15 @@ function buildGrid() {
 }
 
 let selectedNums = [];
+function countSelected() { return selectedNums.filter(n => n != null).length; }
 function selectPalace(num) {
   if (selectedNums.includes(num)) {
     selectedNums = selectedNums.filter(n => n !== num);
     document.getElementById('palace-' + num).classList.remove('selected');
-  } else if (selectedNums.length < 3) {
-    selectedNums.push(num);
+  } else if (countSelected() < 3) {
+    const emptyIdx = selectedNums.findIndex(n => n == null);
+    if (emptyIdx >= 0) selectedNums[emptyIdx] = num;
+    else selectedNums.push(num);
     document.getElementById('palace-' + num).classList.add('selected');
   }
   syncInputs();
@@ -579,7 +582,7 @@ function syncInputs() {
     let v = parseInt(this.value);
     if (isNaN(v) || v < 1 || v > 9) {
       this.value = '';
-      if (selectedNums[i]) { document.getElementById('palace-' + selectedNums[i]).classList.remove('selected'); selectedNums[i] = undefined; }
+      if (selectedNums[i]) { document.getElementById('palace-' + selectedNums[i]).classList.remove('selected'); selectedNums[i] = null; }
       return;
     }
     if (selectedNums[i]) document.getElementById('palace-' + selectedNums[i]).classList.remove('selected');
@@ -598,6 +601,7 @@ function clearAll() {
   document.getElementById('resultArea').classList.remove('show');
   document.getElementById('sharePanel').classList.remove('show');
   currentResult = null;
+  closePoster();
 }
 
 // ========== 起局 ==========
@@ -679,9 +683,7 @@ function generateReading(p1, p2, p3, question) {
   if (allSame) overall = '三才一气，大吉之兆';
   if (zhongGong && !overall.includes('大吉')) overall = '中宫坐镇，转危为安';
 
-  const tianDiEffect = (p1.num === 6 && p3.num === 1) ? '天地交泰，否极泰来之象。' :
-                        (p1.num === 1 && p3.num === 6) ? '地天逆位，小人道长之象。' :
-                        (p1.num === 6 && p3.num === 2) ? '天地否塞，事有不顺。' :
+  const tianDiEffect = (p1.num === 6 && p3.num === 2) ? '天地否塞，事有不顺。' :
                         (p1.num === 2 && p3.num === 6) ? '地天泰交，万事亨通。' : '';
 
   let zhongEffect = zhongGong ? '中宫入局，太极转动，虽有波折终归和顺。五黄入中，调和四象，凡事以稳为主。' : '';
@@ -737,8 +739,8 @@ function buildContextReading(p1, p2, p3, flows, keyword, question, tianDiEffect,
 function buildDetailAnalysis(p1, p2, p3, flows) {
   const sum = p1.num + p2.num + p3.num;
   let d = `三数和为${sum}，`;
-  if (sum % 3 === 0) d += '合三才之数，天地人贯通，吉。';
-  else if (sum === 15) d += '合洛书纵横十五之数，大吉。';
+  if (sum === 15) d += '合洛书纵横十五之数，大吉。';
+  else if (sum % 3 === 0) d += '合三才之数，天地人贯通，吉。';
   else if (sum > 20) d += '气数偏旺，宜以静制动。';
   else if (sum < 10) d += '气数偏弱，宜养精蓄锐。';
   else d += '气数中和，进退有度。';
@@ -774,9 +776,14 @@ function buildTags(overall, p1, p2, p3, flows) {
   tags.push({ type: allAuspicious?'吉':'平', label:'宫位吉凶' });
   const now = new Date();
   const month = now.getMonth() + 1;
-  const seasonMap = { '冬':[11,12,1], '春':[2,3,4], '夏':[5,6,7], '秋':[8,9,10] };
   const inSeason = [p1,p2,p3].some(p => {
-    const months = seasonMap[p.season] || seasonMap[p.season.split('')[0]] || [];
+    if (p.season === '四时') return true;
+    const months = [];
+    if (p.season.includes('春')) months.push(2,3,4);
+    if (p.season.includes('夏') && !p.season.includes('长')) months.push(5,6,7);
+    if (p.season.includes('长夏')) months.push(6,7);
+    if (p.season.includes('秋')) months.push(8,9,10);
+    if (p.season.includes('冬')) months.push(11,12,1);
     return months.includes(month);
   });
   tags.push({ type: inSeason?'吉':'平', label: inSeason?'当令得时':'非当令' });
@@ -788,10 +795,16 @@ function buildTags(overall, p1, p2, p3, flows) {
 // ========== 海报 ==========
 function openPoster() {
   if (!currentResult) { alert('请先起局占测后再生成海报。'); return; }
+  if (typeof QRCode === 'undefined') { showToast('二维码组件加载失败，请刷新后重试'); return; }
 
   const { p1, p2, p3, question, verdict } = currentResult;
 
-  document.getElementById('posterQuestion').innerHTML = `所问：<span>「${question}」</span>`;
+  const pqEl = document.getElementById('posterQuestion');
+  pqEl.textContent = '';
+  const pqSpan = document.createElement('span');
+  pqSpan.textContent = `「${question}」`;
+  pqEl.appendChild(document.createTextNode('所问：'));
+  pqEl.appendChild(pqSpan);
   document.getElementById('posterTrigrams').innerHTML = [p1, p2, p3].map(p => `
     <div class="poster-tri">
       <div class="pt-sym">${p.trigram}</div>
@@ -837,6 +850,7 @@ document.getElementById('posterModal').addEventListener('click', function(e) {
 
 // ========== 下载海报 ==========
 async function downloadPoster() {
+  if (typeof html2canvas === 'undefined') { showToast('海报组件加载失败，请刷新后重试'); return; }
   const posterEl = document.getElementById('posterContent');
   try {
     showToast('正在生成海报…');
@@ -859,6 +873,7 @@ async function downloadPoster() {
 
 // ========== 分享海报图片 ==========
 async function sharePosterImage() {
+  if (typeof html2canvas === 'undefined') { showToast('海报组件加载失败，请刷新后重试'); return; }
   const posterEl = document.getElementById('posterContent');
   try {
     const canvas = await html2canvas(posterEl, {
@@ -868,6 +883,7 @@ async function sharePosterImage() {
       allowTaint: true
     });
     const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    if (!blob) { showToast('海报生成失败，请重试'); return; }
     const file = new File([blob], '河图洛书九宫占测.png', { type: 'image/png' });
 
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -893,13 +909,17 @@ async function sharePosterImage() {
   } catch (e) {
     if (e.name !== 'AbortError') {
       console.error(e);
-      // fallback
-      const canvas = await html2canvas(posterEl, { backgroundColor: '#1a1005', scale: 2 });
-      const link = document.createElement('a');
-      link.download = '河图洛书九宫占测_海报.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      showToast('已保存海报到本地，可手动分享');
+      try {
+        const canvas = await html2canvas(posterEl, { backgroundColor: '#1a1005', scale: 2 });
+        const link = document.createElement('a');
+        link.download = '河图洛书九宫占测_海报.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        showToast('已保存海报到本地，可手动分享');
+      } catch (e2) {
+        console.error(e2);
+        showToast('海报生成失败，请刷新后重试');
+      }
     }
   }
 }
@@ -930,12 +950,13 @@ function shareWeibo() {
   if (!currentResult) { showToast('请先起局占测'); return; }
   const { p1, p2, p3, question, verdict } = currentResult;
   const text = `【河图洛书·九宫占测】问「${question}」${p1.name}→${p2.name}→${p3.name}，断曰：${verdict.substring(0,50)}…  ${window.location.href}`;
-  window.open(`https://service.weibo.com/share/share.php?title=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
+  const w = window.open(`https://service.weibo.com/share/share.php?title=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
+  if (!w) showToast('弹窗被浏览器拦截，请允许弹窗后重试');
 }
 
 function copyToClipboard(text) {
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text).catch(() => {});
   } else {
     const ta = document.createElement('textarea');
     ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
@@ -962,40 +983,65 @@ document.addEventListener('keydown', function(e) {
 // ========== 香火统计计数器 ==========
 // 计数策略：页面加载时用 get 展示当前总数，用户每次"起局"才 hit 递增
 // 同一会话内多次起局只计数一次（sessionStorage 标记）
+// 使用多个备用计数器 API，确保国内可用
+const COUNTER_APIS = [
+  { get: (ns,key) => `https://api.countapi.xyz/get/${ns}/${key}`, hit: (ns,key) => `https://api.countapi.xyz/hit/${ns}/${key}`, parse: r => r.value },
+  { get: (ns,key) => `https://countapi.xyz/get/${ns}/${key}`, hit: (ns,key) => `https://countapi.xyz/hit/${ns}/${key}`, parse: r => r.value },
+];
 const COUNTER_NS = 'hetu-luoshu-9gong';
 const COUNTER_KEY = 'visits';
-const COUNTER_API = `https://api.countapi.xyz`;
+
+async function tryFetch(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (resp.ok) return resp;
+  } catch(e) { /* try next */ }
+  return null;
+}
 
 async function fetchCounterDisplay() {
-  try {
-    const resp = await fetch(`${COUNTER_API}/get/${COUNTER_NS}/${COUNTER_KEY}`);
-    if (resp.ok) {
-      const data = await resp.json();
-      updateCounterDisplay(data.value || 0);
+  let found = false;
+  for (const api of COUNTER_APIS) {
+    const resp = await tryFetch(api.get(COUNTER_NS, COUNTER_KEY));
+    if (resp) {
+      try {
+        const data = await resp.json();
+        const val = api.parse(data);
+        if (typeof val === 'number' && val > 0) {
+          updateCounterDisplay(val);
+          found = true;
+          break;
+        }
+      } catch(e) {}
     }
-  } catch (e) {
-    console.warn('计数器加载失败', e);
-    updateCounterDisplay(0);
   }
+  if (!found) updateCounterDisplay(0);
 }
 
 async function hitCounter() {
-  // 同一会话不重复计数
   if (sessionStorage.getItem('luoshu_counted')) return;
-  sessionStorage.setItem('luoshu_counted', '1');
 
-  try {
-    const resp = await fetch(`${COUNTER_API}/hit/${COUNTER_NS}/${COUNTER_KEY}`);
-    if (resp.ok) {
-      const data = await resp.json();
-      updateCounterDisplay(data.value || 0);
+  for (const api of COUNTER_APIS) {
+    const resp = await tryFetch(api.hit(COUNTER_NS, COUNTER_KEY));
+    if (resp) {
+      try {
+        const data = await resp.json();
+        const val = api.parse(data);
+        if (typeof val === 'number' && val > 0) {
+          updateCounterDisplay(val);
+          sessionStorage.setItem('luoshu_counted', '1');
+        }
+        return;
+      } catch(e) {}
     }
-  } catch (e) {
-    console.warn('计数递增失败', e);
   }
 }
 
 function updateCounterDisplay(count) {
+  if (window._visitorCount != null && count <= window._visitorCount) return;
   window._visitorCount = count;
   const num = formatCount(count);
   const el = document.getElementById('incenseCount');
